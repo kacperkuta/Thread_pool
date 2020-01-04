@@ -106,7 +106,6 @@ void* work(void* pool_pointer) {
         if ((err = pthread_mutex_unlock(&pool->m1)) != 0)
             syserr (err, "unlock failed");
         if (toDo) {
-            printf("mam robote\n");
             (toDo->function)(toDo->arg, toDo->argsz);
             free(toDo);
         }
@@ -151,8 +150,7 @@ void thread_pool_destroy(thread_pool_t *pool) {
     if ((err = pthread_mutex_lock(&(pool->m1))) != 0) {
         syserr(err, "Error in lock");
     }
-    while (pool->onCondition < pool->size) {
-
+    while (pool->onCondition < pool->size && pool->queue) {
         if ((err = pthread_cond_wait(&(pool->c2), &(pool->m1))) != 0) {
             syserr(err, "Wait error.");
         }
@@ -195,8 +193,10 @@ void thread_pool_destroy(thread_pool_t *pool) {
 }
 
 int defer(thread_pool_t *pool, runnable_t runnable) {
-    if(pool->poolDelete)
+
+    if(pool->poolDelete) {
         return ERR;
+    }
     int err;
     if ((err = pthread_mutex_lock(&(pool->m1))) != 0) {
         syserr(err, "Error in lock.");
