@@ -193,10 +193,10 @@ void thread_pool_destroy(thread_pool_t *pool) {
 }
 
 int defer(thread_pool_t *pool, runnable_t runnable) {
-
     if(pool->poolDelete) {
         return ERR;
     }
+
     int err;
     if ((err = pthread_mutex_lock(&(pool->m1))) != 0) {
         syserr(err, "Error in lock.");

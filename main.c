@@ -5,8 +5,11 @@
 #include "future.h"
 
 void f(void* arg, size_t argsz) {
-    sleep(4);
-    printf("testy\n");
+    sleep(2);
+    for (int i = 0; i < argsz; i++) {
+        printf("%d ", *(int*)(arg + i));
+    }
+    printf(" testy\n");
 }
 
 void f1(void* arg, size_t argsz) {
@@ -23,7 +26,7 @@ void f3(void* arg, size_t argsz) {
 }
 
 void* double_(void* arg, size_t argsz, size_t* ressz) {
-    //sleep(1);
+    sleep(2);
     *ressz = 18;
     int* a=  malloc(sizeof(int));
     *a = (*(int*)(arg))*2;
@@ -34,13 +37,16 @@ int main() {
 
     thread_pool_t* pool = malloc(sizeof(thread_pool_t));
     thread_pool_init(pool, 5);
-/*
+
     runnable_t r;
     r.function = &f;
-    r.argsz = 0;
-    r.arg = NULL;
-    defer(pool, r);
-
+    r.argsz = 4;
+    int a[4];
+    a[0] = 1; a[1] = 2; a[2] = 3; a[3] = 4;
+    r.arg = a;
+    for (int i = 0; i < 15; i++)
+        defer(pool, r);
+/*
     runnable_t r1;
     r1.function = &f1;
     r1.argsz = 0;
@@ -59,7 +65,7 @@ int main() {
     r3.arg = NULL;
     defer(pool, r3);
     defer(pool, r2);
-*/
+
     callable_t callable;
     int a = 5;
     callable.arg = &a;
@@ -68,24 +74,26 @@ int main() {
 
     future_t* future = malloc(sizeof(future_t));
     async(pool, future, callable);
-    printf("%d\n", *(int*)await(future));
-    printf("%d\n", (int)(future->ressz));
+
 
     future_t* future1 = malloc(sizeof(future_t));
 
     map(pool, future1, future, double_);
-    printf("%d\n", *(int*)await(future1));
-    printf("%d\n", (int)(future1->ressz));
+    printf("zlecilem\n");
+    printf("%d\n", *(int*)await(future));
+    printf("%d\n", (int)(future->ressz));
     printf("%d\n", *(int*)await(future1));
     printf("%d\n", (int)(future1->ressz));
 
-
+*/
     //sleep(3);
     thread_pool_destroy(pool);
 
     free(pool);
-    free(future->res);
-    free(future);
+    //free(future->res);
+    //free(future);
+    //free(future1->res);
+    //free(future1);
 
 
 

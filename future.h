@@ -34,6 +34,27 @@ typedef struct future {
 
 } future_t;
 
+typedef struct double_future {
+    future_t* first;
+    future_t* second;
+} double_future_t;
+
+
+void* await(future_t* future) {
+    int err;
+    if ((err = pthread_mutex_lock(&future->m) != 0)) {
+        syserr(err, "mutex init failed");
+    }
+    if (future->ready != 1) {
+        if ((err = pthread_cond_wait(&future->c, &future->m)) != 0) {
+            syserr(err, "cond init failed");
+        }
+    }
+    if ((err = pthread_mutex_unlock(&future->m) != 0)) {
+        syserr(err, "mutex init failed");
+    }
+    return future->res;
+}
 
 void dummy(void* arg, size_t argsz) {
     future_t* future = (future_t*)arg;
@@ -42,7 +63,6 @@ void dummy(void* arg, size_t argsz) {
         syserr(err, "mutex lock failed");
     }
 
-    future->ready = 0;
     future->res = future->call.function(future->call.arg, future->call.argsz, &future->ressz);
     future->ready = 1;
 
@@ -54,6 +74,18 @@ void dummy(void* arg, size_t argsz) {
         syserr(err, "mutex unlock failed");
     }
 }
+
+void double_dummy(void* arg, size_t argsz) {
+    double_future_t* double_future = (double_future_t*)arg;
+    await(double_future->second);
+    double_future->first->call.arg = double_future->second->res;
+    double_future->first->call.argsz = double_future->second->ressz;
+
+    dummy(double_future->first, 1);
+    free(double_future);
+}
+
+
 
 int async(thread_pool_t* pool, future_t* future, callable_t callable) {
     int err;
@@ -77,30 +109,35 @@ int async(thread_pool_t* pool, future_t* future, callable_t callable) {
     return defer(pool, runnable);
 }
 
-void* await(future_t* future) {
-    int err;
-    if ((err = pthread_mutex_lock(&future->m) != 0)) {
-        syserr(err, "mutex init failed");
-    }
-    if (future->ready != 1) {
-        if ((err = pthread_cond_wait(&future->c, &future->m)) != 0) {
-            syserr(err, "cond init failed");
-        }
-    }
-    if ((err = pthread_mutex_unlock(&future->m) != 0)) {
-        syserr(err, "mutex init failed");
-    }
-    return future->res;
-}
 
 int map(thread_pool_t* pool, future_t* future, future_t* from,
         void* (*function)(void*, size_t, size_t*)) {
-    void* result = await(from);
+    int err;
+    if ((err = pthread_mutex_init(&future->m, 0) != 0)) {
+        syserr(err, "mutex init failed");
+    }
+
+    if ((err = pthread_cond_init(&future->c, 0) != 0)) {
+        syserr(err, "mutex init failed");
+    }
+
+    future->ressz = 0;
+    future->ready = 0;
+    future->res = NULL;
     callable_t call;
     call.function = function;
-    call.argsz = from->ressz;
-    call.arg = result;
-    return async(pool, future, call);
+    future->call = call;
+
+    double_future_t* double_future = malloc(sizeof(double_future_t));
+    double_future->first = future;
+    double_future->second = from;
+
+    runnable_t runnable;
+    runnable.function = double_dummy;
+    runnable.argsz = 1;
+    runnable.arg = double_future;
+
+    return defer(pool, runnable);
 }
 
 #endif //THREAD_POOL_FUTURE_H
