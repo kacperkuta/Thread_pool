@@ -41,6 +41,7 @@ typedef struct thread_pool {
     pthread_attr_t attr;
     int still_work;   //1 - ture, 0 - false
     int poolDelete;   //1 - ture, 0 - false
+
 } thread_pool_t;
 
 runnable_t* pop(thread_pool_t* pool) {
@@ -88,6 +89,7 @@ void* work(void* pool_pointer) {
             syserr(err, "Error in lock");
         }
         runnable_t* toDo = NULL;
+        toDo = pop(pool);
         while (pool->still_work && toDo == NULL) {
             pool->onCondition++;
             if (pool->poolDelete && pool->onCondition == pool->size) {
@@ -104,7 +106,9 @@ void* work(void* pool_pointer) {
         if ((err = pthread_mutex_unlock(&pool->m1)) != 0)
             syserr (err, "unlock failed");
         if (toDo) {
+            printf("mam robote\n");
             (toDo->function)(toDo->arg, toDo->argsz);
+            free(toDo);
         }
     }
     return 0;

@@ -4,6 +4,7 @@
 #include "threadpool.h"
 
 void f(void* arg, size_t argsz) {
+    sleep(4);
     printf("testy\n");
 }
 
@@ -16,6 +17,7 @@ void f2(void* arg, size_t argsz) {
 }
 
 void f3(void* arg, size_t argsz) {
+    sleep(4);
     printf("testy3\n");
 }
 
@@ -47,10 +49,12 @@ int main() {
     r3.argsz = 0;
     r3.arg = NULL;
     defer(pool, r3);
-    
-    
+
+
     //sleep(3);
     thread_pool_destroy(pool);
+
+    free(pool);
 
 
 
