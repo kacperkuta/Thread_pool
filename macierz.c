@@ -40,8 +40,8 @@ int main() {
     thread_pool_init(pool, THREADS);
 
     //reading with lag
-    for (int i = 0; i < n; i++) {
-        for (int j = 0; j < k; j++) {
+    for (unsigned i = 0; i < n; i++) {
+        for (unsigned j = 0; j < k; j++) {
             tab[i][j] = malloc(sizeof(future_t));
             callable_t call;
             int* arg = malloc(sizeof(int)*2);
@@ -57,7 +57,7 @@ int main() {
 
     //multi-thread row sums counting
     future_t** row_sums = malloc(sizeof(future_t*)*n);
-    for (int i = 0; i < n; i++) {
+    for (unsigned i = 0; i < n; i++) {
         row_sums[i] = malloc(sizeof(future_t));
         callable_t call;
         call.arg = tab[i];
@@ -67,14 +67,14 @@ int main() {
     }
 
     //printing row sums in correct order
-    for (int i = 0; i < n; i++) {
+    for (unsigned i = 0; i < n; i++) {
         int * a = await(row_sums[i]);
         printf("%d\n", *a);
         free(a);
     }
 
     //memory freeing
-    for (int i = 0; i < n; i++) {
+    for (unsigned i = 0; i < n; i++) {
         free(row_sums[i]);
         for (int j = 0; j < k; j++) {
             free(tab[i][j]);

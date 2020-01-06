@@ -1,6 +1,9 @@
 #include "future.h"
 
 void* count(void* arg, size_t argsz, size_t* size) {
+    if (argsz != 2) {
+        return NULL;
+    }
     unsigned long long* res = malloc(2*sizeof(unsigned long long));
     unsigned long long* args = arg;
     if (args[1] != 1) {
@@ -10,6 +13,7 @@ void* count(void* arg, size_t argsz, size_t* size) {
     }
     res[1] = args[1] + 1;
     free(arg);
+    (*size) = 2;
     return res;
 }
 

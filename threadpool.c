@@ -4,7 +4,6 @@
 #include "threadpool.h"
 #include "future.h"
 
-
 runnable_t* pop(thread_pool_t* pool) {
     if (pool->queue) {
         element* el = pool->queue;
