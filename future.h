@@ -18,28 +18,6 @@
 #define ERR -1
 #define SUCC 0
 
-typedef struct callable {
-    void* (*function)(void* , size_t, size_t*);
-    void* arg;
-    size_t argsz;
-} callable_t;
-
-typedef struct future {
-    size_t ressz;
-    void* res;
-    callable_t call;
-    pthread_cond_t c;
-    pthread_mutex_t m;
-    int ready;
-
-} future_t;
-
-typedef struct double_future {
-    future_t* first;
-    future_t* second;
-} double_future_t;
-
-
 void* await(future_t* future) {
     int err;
     if ((err = pthread_mutex_lock(&future->m) != 0)) {
@@ -59,13 +37,14 @@ void* await(future_t* future) {
 void dummy(void* arg, size_t argsz) {
     future_t* future = (future_t*)arg;
     int err;
+    void* res;
+
+    res = future->call.function(future->call.arg, future->call.argsz, &future->ressz);
     if ((err = pthread_mutex_lock(&future->m) != 0)) {
         syserr(err, "mutex lock failed");
     }
-
-    future->res = future->call.function(future->call.arg, future->call.argsz, &future->ressz);
+    future->res = res;
     future->ready = 1;
-
     if ((err = pthread_cond_signal(&future->c)) != 0) {
         syserr(err, "cond signal failed");
     }
@@ -77,7 +56,6 @@ void dummy(void* arg, size_t argsz) {
 
 void double_dummy(void* arg, size_t argsz) {
     double_future_t* double_future = (double_future_t*)arg;
-    await(double_future->second);
     double_future->first->call.arg = double_future->second->res;
     double_future->first->call.argsz = double_future->second->ressz;
 
@@ -137,7 +115,7 @@ int map(thread_pool_t* pool, future_t* future, future_t* from,
     runnable.argsz = 1;
     runnable.arg = double_future;
 
-    return defer(pool, runnable);
+    return defer_future_pair(pool, runnable);
 }
 
 #endif //THREAD_POOL_FUTURE_H

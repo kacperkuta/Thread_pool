@@ -9,6 +9,7 @@
 #include <semaphore.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
@@ -23,10 +24,32 @@ typedef struct runnable {
     size_t argsz;
 } runnable_t;
 
+typedef struct callable {
+    void* (*function)(void* , size_t, size_t*);
+    void* arg;
+    size_t argsz;
+} callable_t;
+
+typedef struct future {
+    size_t ressz;
+    void* res;
+    callable_t call;
+    pthread_cond_t c;
+    pthread_mutex_t m;
+    int ready;
+} future_t;
+
+typedef struct double_future {
+    future_t* first;
+    future_t* second;
+} double_future_t;
+
+
 //queue of runnables to run
 typedef struct queue_element {
     struct queue_element* next;
-    runnable_t* myRunnable;
+    runnable_t* my_task;
+    int is_future_pair;
 } element;
 
 typedef struct thread_pool {
@@ -44,30 +67,69 @@ typedef struct thread_pool {
 
 } thread_pool_t;
 
+//pops first ready-to-run runnable form pool queue
 runnable_t* pop(thread_pool_t* pool) {
     if (pool->queue) {
-        runnable_t* toReturn = (pool->queue)->myRunnable;
-        element* toFree = pool->queue;
-        pool->queue = (pool->queue)->next;
-        if (!(pool->queue)) {
-            pool->queue = NULL;
-            pool->last = NULL;
-        }
-        free(toFree);
-        return toReturn;
-    } 
+        element* el = pool->queue;
+        element* prev = NULL;
+        runnable_t* to_return = NULL;
+        do {
+            if (!el->is_future_pair) {
+                to_return = el->my_task;
+                if (prev) {
+                    prev->next = el->next;
+                    free(el);
+                } else {
+                    pool->queue = el->next;
+                    free(el);
+                }
+                break;
+            } else {
+                double_future_t* future_pair = el->my_task->arg;
+                int err;
+                if ((err = pthread_mutex_lock(&(future_pair->second->m))) != 0) {
+                    syserr(err, "Error in lock");
+                }
+                if (future_pair->second->ready) {
+                    to_return = el->my_task;
+                    if (prev) {
+                        prev->next = el->next;
+                        free(el);
+                    } else {
+                        pool->queue = el->next;
+                        free(el);
+                    }
+                    if ((err = pthread_mutex_unlock(&(future_pair->second->m))) != 0) {
+                        syserr(err, "Error in unlock");
+                    }
+                    break;
+                } else {
+                    prev = el;
+                    el = el->next;
+                    if ((err = pthread_mutex_unlock(&(future_pair->second->m))) != 0) {
+                        syserr(err, "Error in unlock");
+                    }
+                }
+            }
+        } while (el);
+        return to_return;
+    }
     return NULL;
 }
 
-void push(thread_pool_t* pool, void (*function)(void*, size_t), void* arg, size_t argsz) {
+//pushes runnable into the last place in pools queue
+void push(thread_pool_t* pool, void (*function)(void*, size_t), void* arg, size_t argsz, int is_future_pair) {
 
     runnable_t* toPush = malloc(sizeof(runnable_t));
     toPush->function = function;
     toPush->arg = arg;
     toPush->argsz = argsz;
+
     element* newElement = malloc(sizeof(element));
     newElement->next = NULL;
-    newElement->myRunnable = toPush;
+    newElement->my_task = toPush;
+    newElement->is_future_pair = is_future_pair;
+
     if (pool->queue) {
         (pool->last)->next = newElement;
         pool->last = newElement;
@@ -81,6 +143,15 @@ void push(thread_pool_t* pool, void (*function)(void*, size_t), void* arg, size_
     }
 }
 
+//list of existing pools, necessary for signal service
+typedef struct pool_list {
+    thread_pool_t* thread_pool;
+    struct pool_list* next;
+} pool_list_t;
+
+pool_list_t* pools = NULL;
+
+//basic work function for thread
 void* work(void* pool_pointer) {
     thread_pool_t* pool = pool_pointer;
     int err;
@@ -113,40 +184,29 @@ void* work(void* pool_pointer) {
     return 0;
 }
 
-int thread_pool_init(thread_pool_t *pool, size_t pool_size) {
-    pool->size = pool_size;
-    pool->th = malloc(sizeof(pthread_t)*pool_size);
-    pool->still_work = 1;
-    pool->poolDelete = 0;
-    pool->onCondition = 0;
-    pool->last = NULL;
-    pool->queue = NULL;
-    int err;
-
-    if ((err = pthread_mutex_init(&pool->m1, 0) != 0)) {
-        syserr(err, "mutex init failed");
+//removes pool from pool list
+void remove_from_pools(thread_pool_t *pool) {
+    pool_list_t* list = pools;
+    if (list->thread_pool == pool) {
+        pools = pools->next;
+        free(list);
+    } else {
+        while (pool != list->next->thread_pool) {
+            list = list->next;
+        }
+        pool_list_t* toFree = list->next;
+        list->next = list->next->next;
+        free(toFree);
     }
-    if ((err = pthread_cond_init(&pool->c1, 0)) != 0) {
-        syserr(err, "cond1 init failed");
-    }
-    if ((err = pthread_cond_init(&pool->c2, 0)) != 0) {
-        syserr(err, "cond2 init failed");
-    }
-
-    if ((err = pthread_attr_init (&pool->attr)) != 0)
-        syserr(err, "attr_init failed");
-
-    for (size_t i = 0; i < pool_size; i++) {
-        if ((err = pthread_create(&(pool->th[i]), &pool->attr, &work, pool)) != 0)
-            syserr(err, "create failed");
-    }
-    return SUCC;
 }
 
 void thread_pool_destroy(thread_pool_t *pool) {
+    remove_from_pools(pool);
+
     int err;
     pool->poolDelete = true;
 
+    //waiting for all threads to finish
     if ((err = pthread_mutex_lock(&(pool->m1))) != 0) {
         syserr(err, "Error in lock");
     }
@@ -156,6 +216,7 @@ void thread_pool_destroy(thread_pool_t *pool) {
         }
     }
 
+    //deleting struct elements
     pool->still_work = false;
     void* res;
     for (size_t i = 0; i < pool->size; i++) {
@@ -192,6 +253,74 @@ void thread_pool_destroy(thread_pool_t *pool) {
         syserr(err, "attr destroy failed");
 }
 
+//SIGINT service
+void catch() {
+    pool_list_t* list = pools;
+    while(list) {
+        thread_pool_destroy(list->thread_pool);
+        pool_list_t* next = list->next;
+        free(list);
+        list = next;
+    }
+    exit(0);
+}
+
+void signal_service() {
+    struct sigaction action;
+    sigset_t block_mask;
+
+    sigemptyset (&block_mask);
+    sigaddset(&block_mask, SIGINT);
+
+    action.sa_handler = catch;
+    action.sa_mask = block_mask;
+    action.sa_flags = 0;
+
+    if (sigaction(SIGINT, &action, 0) == -1)    /*Nowa obługa SIGINT*/
+        fprintf(stderr, "sigaction");
+}
+
+//adds pool to list of existing pools
+void add_to_pools(thread_pool_t *pool) {
+    pool_list_t* first = pools;
+    pools = malloc(sizeof(pool_list_t));
+    pools->thread_pool = pool;
+    pools->next = first;
+}
+
+int thread_pool_init(thread_pool_t *pool, size_t pool_size)  {
+    add_to_pools(pool);
+    signal_service();
+
+    pool->size = pool_size;
+    pool->th = malloc(sizeof(pthread_t)*pool_size);
+    pool->still_work = 1;
+    pool->poolDelete = 0;
+    pool->onCondition = 0;
+    pool->last = NULL;
+    pool->queue = NULL;
+    int err;
+
+    if ((err = pthread_mutex_init(&pool->m1, 0) != 0)) {
+        syserr(err, "mutex init failed");
+    }
+    if ((err = pthread_cond_init(&pool->c1, 0)) != 0) {
+        syserr(err, "cond1 init failed");
+    }
+    if ((err = pthread_cond_init(&pool->c2, 0)) != 0) {
+        syserr(err, "cond2 init failed");
+    }
+
+    if ((err = pthread_attr_init (&pool->attr)) != 0)
+        syserr(err, "attr_init failed");
+
+    for (size_t i = 0; i < pool_size; i++) {
+        if ((err = pthread_create(&(pool->th[i]), &pool->attr, &work, pool)) != 0)
+            syserr(err, "create failed");
+    }
+    return SUCC;
+}
+
 int defer(thread_pool_t *pool, runnable_t runnable) {
     if(pool->poolDelete) {
         return ERR;
@@ -201,13 +330,32 @@ int defer(thread_pool_t *pool, runnable_t runnable) {
     if ((err = pthread_mutex_lock(&(pool->m1))) != 0) {
         syserr(err, "Error in lock.");
     }
-    push(pool, runnable.function, runnable.arg, runnable.argsz);
+    push(pool, runnable.function, runnable.arg, runnable.argsz, false);
     if ((err = pthread_cond_signal(&(pool->c1))) != 0) {
         syserr(err, "Signal error.");
     }
     if ((err = pthread_mutex_unlock(&pool->m1)) != 0)
         syserr (err, "unlock failed");
     return SUCC;
-};
+}
+
+int defer_future_pair(thread_pool_t *pool, runnable_t runnable) {
+    if(pool->poolDelete) {
+        return ERR;
+    }
+
+    int err;
+    if ((err = pthread_mutex_lock(&(pool->m1))) != 0) {
+        syserr(err, "Error in lock.");
+    }
+    push(pool, runnable.function, runnable.arg, runnable.argsz, true);
+    if ((err = pthread_cond_signal(&(pool->c1))) != 0) {
+        syserr(err, "Signal error.");
+    }
+    if ((err = pthread_mutex_unlock(&pool->m1)) != 0)
+        syserr (err, "unlock failed");
+    return SUCC;
+}
+
 
 #endif //THREAD_POOL_THREADPOOL_H
