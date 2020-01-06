@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include "threadpool.h"
+
 #include "future.h"
 
 void f(void* arg, size_t argsz) {
@@ -74,5 +74,8 @@ int main() {
     defer(pool, r3);
 
     thread_pool_destroy(pool);
+    free(fut);
+    free(from);
+    free(pool);
     return 0;
 }

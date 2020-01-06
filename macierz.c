@@ -9,7 +9,7 @@
 
 void* calc_value(void* arg, size_t argsz, size_t* size) {
     int* args = arg;
-    usleep((unsigned)args[1]);
+    usleep((unsigned)args[1]*1000);
     int* res = malloc(sizeof(int));
     (*res) = args[0];
     *size = 1;
