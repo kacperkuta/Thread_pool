@@ -17,7 +17,7 @@ typedef struct runnable {
     size_t argsz;
 } runnable_t;
 
-//queue of runnables to run
+/* queue of runnables to run */
 typedef struct queue_element {
     struct queue_element* next;
     runnable_t* my_task;
@@ -26,17 +26,17 @@ typedef struct queue_element {
 
 
 typedef struct thread_pool {
-    size_t size;
-    pthread_t* th;
-    pthread_mutex_t m1;
-    pthread_cond_t c1;
-    size_t onCondition;
-    pthread_cond_t c2;
-    element* queue;
-    element* last;
-    pthread_attr_t attr;
-    int still_work;   //1 - ture, 0 - false
-    int poolDelete;   //1 - ture, 0 - false
+    size_t size;            //pool size
+    pthread_t* th;          //array of working threads
+    pthread_mutex_t m1;     //mutex for multi-thread safety
+    pthread_cond_t c1;      //condition for unemployed threads
+    size_t onCondition;     //amount of waiting threads on condition
+    pthread_cond_t c2;      //condition for main thread waiting for pool destroying
+    element* queue;         //queue of tasks to do
+    element* last;          //last element of queue
+    pthread_attr_t attr;    //attr for threads
+    int still_work;         //1 - ture, 0 - false
+    int poolDelete;         //1 - ture, 0 - false
 
 } thread_pool_t;
 
@@ -46,10 +46,10 @@ void thread_pool_destroy(thread_pool_t *pool);
 
 int defer(thread_pool_t *pool, runnable_t runnable);
 
-//pops first ready-to-run runnable form pool queue
+/* pops first ready-to-run runnable form pool queue */
 runnable_t* pop(thread_pool_t* pool);
 
-//pushes runnable into the last place in pools queue
+/* pushes runnable into the last place in pools queue */
 void push(thread_pool_t* pool, void (*function)(void*, size_t), void* arg, size_t argsz, int is_future_pair);
 
 #endif //THREAD_POOL_THREADPOOL_H

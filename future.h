@@ -10,15 +10,15 @@ typedef struct callable {
     size_t argsz;
 } callable_t;
 
-
-
+/* conditional and mutex should be destroyed by library user!!! */
 typedef struct future {
-    size_t ressz;
-    void* res;
-    callable_t call;
-    pthread_cond_t c;
-    pthread_mutex_t m;
-    int ready;
+    size_t ressz;                   //size fo result
+    void* res;                      //result
+    callable_t call;                //callable to do
+    pthread_cond_t c;               //conditional for await
+    pthread_mutex_t m;              //mutex for multi-thread safety
+    int ready;                      //is result ready? 1 - true, 0 - false
+    thread_pool_t* waiting_pool;    //pool which is waiting for future to be ready
 } future_t;
 
 typedef struct double_future {

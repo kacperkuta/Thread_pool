@@ -5,53 +5,41 @@
 
 #define THREADS 4
 
-
-
-void* calc_value(void* arg, size_t argsz, size_t* size) {
-    int* args = arg;
-    usleep((unsigned)args[1]*1000);
-    int* res = malloc(sizeof(int));
-    (*res) = args[0];
-    *size = 1;
-    return res;
-}
+typedef struct pair {
+    int first;
+    int second;
+} pair_t;
 
 void* calc_row(void* arg, size_t argsz, size_t* size) {
     int* sum = malloc(sizeof(int));
     *sum = 0;
-    future_t** args = arg;
-    for (int i = 0; i < argsz; i++) {
-        int* res = await(args[i]);
-        (*sum) += (*res);
-        free(res);
+    pair_t* args = arg;
+    for (unsigned i = 0; i < argsz; i++) {
+        usleep((unsigned)args[i].second*1000);
+        (*sum) += args[i].first;
     }
     (*size) = 1;
     return sum;
 }
 
-
 int main() {
     unsigned n, k;
     scanf("%d", &n);
     scanf("%d", &k);
-    future_t* tab[n][k];
-    callable_t call_tab[n][k];
+    pair_t tab[n][k];
     thread_pool_t* pool = malloc(sizeof(thread_pool_t));
     thread_pool_init(pool, THREADS);
 
-    //reading with lag
+    //reading input
     for (unsigned i = 0; i < n; i++) {
         for (unsigned j = 0; j < k; j++) {
-            tab[i][j] = malloc(sizeof(future_t));
-            callable_t call;
-            int* arg = malloc(sizeof(int)*2);
-            call.argsz = 2;
-            call.function = &calc_value;
-            scanf("%d", arg);
-            scanf("%d", arg + 1);
-            call.arg = arg;
-            call_tab[i][j] = call;
-            async(pool, tab[i][j], call_tab[i][j]);
+            int a, b;
+            scanf("%d", &a);
+            scanf("%d", &b);
+            pair_t in;
+            in.first = a;
+            in.second = b;
+            tab[i][j] = in;
         }
     }
 
@@ -76,10 +64,6 @@ int main() {
     //memory freeing
     for (unsigned i = 0; i < n; i++) {
         free(row_sums[i]);
-        for (int j = 0; j < k; j++) {
-            free(tab[i][j]);
-            free(call_tab[i][j].arg);
-        }
     }
     free(row_sums);
     thread_pool_destroy(pool);

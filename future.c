@@ -19,6 +19,7 @@ void* await(future_t* future) {
     return future->res;
 }
 
+/* wrapper which replaces void*-returning function by void procedure */
 void dummy(void* arg, size_t argsz) {
     future_t* future = (future_t*)arg;
     int err;
@@ -28,8 +29,14 @@ void dummy(void* arg, size_t argsz) {
     if ((err = pthread_mutex_lock(&future->m) != 0)) {
         syserr(err, "mutex lock failed");
     }
+
     future->res = res;
     future->ready = 1;
+    if (future->waiting_pool) {
+        if ((err = pthread_cond_signal(&future->waiting_pool->c1)) != 0) {
+            syserr(err, "cond signal failed");
+        }
+    }
     if ((err = pthread_cond_signal(&future->c)) != 0) {
         syserr(err, "cond signal failed");
     }
@@ -37,15 +44,22 @@ void dummy(void* arg, size_t argsz) {
     if ((err = pthread_mutex_unlock(&future->m) != 0)) {
         syserr(err, "mutex unlock failed");
     }
+    if (argsz != 1)
+        return;
 }
 
+/* wrapper for map function - creates callable from already counted future and
+ * counts counts new future */
 void double_dummy(void* arg, size_t argsz) {
+
     double_future_t* double_future = (double_future_t*)arg;
     double_future->first->call.arg = double_future->second->res;
     double_future->first->call.argsz = double_future->second->ressz;
 
     dummy(double_future->first, 1);
     free(double_future);
+    if (argsz != 1)
+        return;
 }
 
 
@@ -59,11 +73,12 @@ int async(thread_pool_t* pool, future_t* future, callable_t callable) {
     if ((err = pthread_cond_init(&future->c, 0) != 0)) {
         syserr(err, "mutex init failed");
     }
-
     future->ressz = 0;
     future->call = callable;
     future->res = NULL;
     future->ready = 0;
+    future->waiting_pool = NULL;
+
     runnable_t runnable;
     runnable.function = dummy;
     runnable.argsz = 1;
@@ -71,6 +86,7 @@ int async(thread_pool_t* pool, future_t* future, callable_t callable) {
 
     return defer(pool, runnable);
 }
+
 
 int defer_future_pair(thread_pool_t *pool, runnable_t runnable) {
     if(pool->poolDelete) {
@@ -82,16 +98,22 @@ int defer_future_pair(thread_pool_t *pool, runnable_t runnable) {
         syserr(err, "Error in lock.");
     }
     push(pool, runnable.function, runnable.arg, runnable.argsz, true);
+
     if ((err = pthread_cond_signal(&(pool->c1))) != 0) {
         syserr(err, "Signal error.");
     }
-    if ((err = pthread_mutex_unlock(&pool->m1)) != 0)
-        syserr (err, "unlock failed");
+    if ((err = pthread_mutex_unlock(&pool->m1)) != 0) {
+        syserr(err, "unlock failed");
+    }
     return SUCC;
 }
 
 int map(thread_pool_t* pool, future_t* future, future_t* from,
         void* (*function)(void*, size_t, size_t*)) {
+    if(pool->poolDelete) {
+        return ERR;
+    }
+
     int err;
     if ((err = pthread_mutex_init(&future->m, 0) != 0)) {
         syserr(err, "mutex init failed");
@@ -104,9 +126,17 @@ int map(thread_pool_t* pool, future_t* future, future_t* from,
     future->ressz = 0;
     future->ready = 0;
     future->res = NULL;
+    future->waiting_pool = NULL;
+
     callable_t call;
     call.function = function;
     future->call = call;
+
+    if ((err = pthread_mutex_lock(&from->m)) != 0)
+        syserr (err, "lock failed");
+    from->waiting_pool = pool;
+    if ((err = pthread_mutex_unlock(&from->m)) != 0)
+        syserr (err, "unlock failed");
 
     double_future_t* double_future = malloc(sizeof(double_future_t));
     double_future->first = future;
